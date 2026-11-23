@@ -31,6 +31,7 @@ import java.io.File;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.FileVisitResult;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -67,6 +68,7 @@ public class App
     private static final Pattern SEPARATEUR_NOM_ANTERIEUR = Pattern.compile("_{2,}");
     private static final String[] EXTENSIONS_SUPPORTES =
             {".jpg", ".jpeg", ".png", ".gif", ".heic", ".webp", ".pdf"};
+    private static final String[] LANGUES_OCR = {"fra", "por", "eng", "spa"};
     private static final float HAUTEUR_LIGNE = 18.0f;
     static final int SEUIL_CONFIANCE_OCR_PAR_DEFAUT = 10;
 
@@ -96,7 +98,7 @@ public class App
             moteurOcr = extraireOcr && fichiers.length > 0
                     ? creerMoteurOcr(seuilConfianceOcr) : null;
         } catch (IOException | UnsatisfiedLinkError e) {
-            throw new IOException("Impossible de préparer l’OCR français : "
+            throw new IOException("Impossible de préparer les modèles OCR : "
                     + e.getMessage(), e);
         }
 
@@ -219,19 +221,20 @@ public class App
                     + e.getMessage(), e);
         }
 
-        String message = ecrits + " documents exportés dans " + sortie.getName();
+        StringBuilder message = new StringBuilder()
+                .append(ecrits).append(" documents exportés dans ").append(sortie.getName());
         if (!erreursExtraction.isEmpty()) {
-            message += "\n\nExtraction impossible pour "
-                    + erreursExtraction.size() + " fichier(s) :";
+            message.append("\n\nExtraction impossible pour ")
+                    .append(erreursExtraction.size()).append(" fichier(s) :");
             int limite = Math.min(erreursExtraction.size(), 5);
             for (int i = 0; i < limite; i++) {
-                message += "\n- " + erreursExtraction.get(i);
+                message.append("\n- ").append(erreursExtraction.get(i));
             }
             if (erreursExtraction.size() > limite) {
-                message += "\n- ...";
+                message.append("\n- ...");
             }
         }
-        return new ResultatExport(message, !erreursExtraction.isEmpty());
+        return new ResultatExport(message.toString(), !erreursExtraction.isEmpty());
     }
 
     static final class ResultatExport {
@@ -259,14 +262,19 @@ public class App
         verifierSeuilConfianceOcr(seuilConfianceOcr);
         Path donneesOcr = Files.createTempDirectory("leopold-tessdata");
         donneesOcr.toFile().deleteOnExit();
-        Path modeleFrancais = donneesOcr.resolve("fra.traineddata");
-        try (InputStream modele = App.class.getResourceAsStream("/tessdata/fra.traineddata")) {
-            if (modele == null) {
-                throw new IOException("Le modèle fra.traineddata est absent de l'application.");
+        for (String langue : LANGUES_OCR) {
+            String nomModele = langue + ".traineddata";
+            Path modele = donneesOcr.resolve(nomModele);
+            try (InputStream ressource =
+                         App.class.getResourceAsStream("/tessdata/" + nomModele)) {
+                if (ressource == null) {
+                    throw new IOException("Le modèle " + nomModele
+                            + " est absent de l'application.");
+                }
+                Files.copy(ressource, modele);
             }
-            Files.copy(modele, modeleFrancais);
+            modele.toFile().deleteOnExit();
         }
-        modeleFrancais.toFile().deleteOnExit();
 
         return new MoteurOcr(donneesOcr, seuilConfianceOcr);
     }
@@ -297,11 +305,11 @@ public class App
                     textePage = moteurOcr.extraireTexte(imagePage).trim();
                 }
                 if (!textePage.isEmpty()) {
-                    if (texteComplet.length() > 0) texteComplet.append("\n\n");
+                    if (!texteComplet.isEmpty()) texteComplet.append("\n\n");
                     texteComplet.append(textePage);
                 }
             }
-            return texteComplet.length() == 0 ? null : texteComplet.toString();
+            return texteComplet.isEmpty() ? null : texteComplet.toString();
         }
     }
 
@@ -320,14 +328,12 @@ public class App
         verifierSeuilConfianceOcr(seuilConfianceOcr);
         Path racineAbsolue = racine.toAbsolutePath().normalize();
         Path dossierOcrAbsolu = dossierOcr.toAbsolutePath().normalize();
-        Path repertoireWord = dossierOcrAbsolu;
-
         String nomDossierOcr = dossierOcrAbsolu.getFileName().toString();
         String suffixeOcr = nomDossierOcr.startsWith("OCR_")
                 ? nomDossierOcr.substring("OCR".length()) : "";
         String suffixeWord = "_SC" + seuilConfianceOcr + suffixeOcr;
         String extensionWord = ".docx";
-        String prefixeLien = prefixeLienRelatif(racineAbsolue, repertoireWord);
+        String prefixeLien = prefixeLienRelatif(racineAbsolue, dossierOcrAbsolu);
         Path cheminWord;
         int numero = 0;
         while (true) {
@@ -340,7 +346,7 @@ public class App
 
             String titreTronque = tronquerTitre(nomSansExtension, longueurTitreMaximale);
             String nomWord = titreTronque + suffixeWord + suffixeDoublon + extensionWord;
-            cheminWord = repertoireWord.resolve(nomWord);
+            cheminWord = dossierOcrAbsolu.resolve(nomWord);
             if (!Files.exists(cheminWord)) {
                 break;
             }
@@ -351,7 +357,7 @@ public class App
         if (cheminLien.length() > LONGUEUR_MAX_LIEN_EXCEL) {
             throw new IOException("Impossible de respecter la limite Excel du lien OCR.");
         }
-        Files.createDirectories(repertoireWord);
+        Files.createDirectories(dossierOcrAbsolu);
 
         try (XWPFDocument document = new XWPFDocument();
              FileOutputStream out = new FileOutputStream(cheminWord.toFile())) {
@@ -398,9 +404,11 @@ public class App
         private MoteurOcr(Path donneesOcr, int seuilConfianceOcr) throws IOException {
             api = new TessBaseAPI();
             this.seuilConfianceOcr = seuilConfianceOcr;
-            if (api.Init(donneesOcr.toString(), "fra") != 0) {
+            if (api.Init(donneesOcr.toString(), String.join("+", LANGUES_OCR)) != 0) {
                 api.close();
-                throw new IOException("Tesseract n’a pas pu charger le modèle français.");
+                throw new IOException(
+                        "Tesseract n’a pas pu charger les modèles français, portugais, "
+                                + "anglais et espagnol.");
             }
         }
 
@@ -430,7 +438,8 @@ public class App
                 BytePointer texte = api.GetTSVText(0);
                 if (texte == null || texte.isNull()) return "";
                 try {
-                    return filtrerTexteTsv(texte.getString(), seuilConfianceOcr);
+                    return filtrerTexteTsv(
+                            texte.getString(StandardCharsets.UTF_8), seuilConfianceOcr);
                 } finally {
                     texte.deallocate();
                 }
@@ -467,7 +476,7 @@ public class App
                 }
                 if (confiance < seuilConfianceOcr || champs[11].isEmpty()) continue;
 
-                if (ligne.length() > 0) ligne.append(' ');
+                if (!ligne.isEmpty()) ligne.append(' ');
                 ligne.append(champs[11]);
             }
 
@@ -476,8 +485,8 @@ public class App
         }
 
         private static void ajouterLigneOcr(StringBuilder texte, StringBuilder ligne) {
-            if (ligne.length() == 0) return;
-            if (texte.length() > 0) texte.append('\n');
+            if (ligne.isEmpty()) return;
+            if (!texte.isEmpty()) texte.append('\n');
             texte.append(ligne);
             ligne.setLength(0);
         }
@@ -522,7 +531,7 @@ public class App
     }
 
     private static void ajouterSegmentFormule(StringBuilder formule, StringBuilder segment) {
-        if (formule.length() > 0) {
+        if (!formule.isEmpty()) {
             formule.append('&');
         }
         formule.append('"').append(segment).append('"');
@@ -544,7 +553,7 @@ public class App
 
     private static File[] trouverFichiers(File racine) throws IOException {
         List<File> fichiers = new ArrayList<>();
-        Files.walkFileTree(racine.toPath(), new SimpleFileVisitor<Path>() {
+        Files.walkFileTree(racine.toPath(), new SimpleFileVisitor<>() {
             @Override
             public FileVisitResult visitFile(Path fichier, BasicFileAttributes attributes) {
                 if (attributes.isRegularFile() && estFormatSupporte(fichier)) {

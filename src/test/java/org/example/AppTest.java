@@ -27,6 +27,7 @@ import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.Locale;
 
 /**
  * Unit test for simple App.
@@ -243,14 +244,13 @@ public class AppTest
         Path dossierSource = racine.resolve("sous-dossier");
         Path source = dossierSource.resolve("document.pdf");
         Path dossierOcr = App.trouverDossierOcr(racine);
-        Path dossierWord = dossierOcr;
         try {
             Files.createDirectories(dossierSource);
             Files.createFile(source);
 
             File word = App.creerDocumentWord(
                     racine, dossierOcr, source.toFile(), "document", 10, "Texte OCR");
-            assertEquals(dossierWord.resolve("document_SC10.docx").toFile(), word);
+            assertEquals(dossierOcr.resolve("document_SC10.docx").toFile(), word);
             assertFalse(Files.exists(dossierOcr.resolve("sous-dossier")));
             try (InputStream input = Files.newInputStream(word.toPath());
                  XWPFDocument document = new XWPFDocument(input)) {
@@ -262,9 +262,8 @@ public class AppTest
                     racine, dossierOcr, source.toFile(), "document", 10, "Autre texte OCR");
             assertEquals("document_SC10_1.docx", doublon.getName());
         } finally {
-            Files.deleteIfExists(dossierWord.resolve("document_SC10.docx"));
-            Files.deleteIfExists(dossierWord.resolve("document_SC10_1.docx"));
-            Files.deleteIfExists(dossierOcr);
+            Files.deleteIfExists(dossierOcr.resolve("document_SC10.docx"));
+            Files.deleteIfExists(dossierOcr.resolve("document_SC10_1.docx"));
             Files.deleteIfExists(dossierOcr);
             Files.deleteIfExists(source);
             Files.deleteIfExists(dossierSource);
@@ -278,23 +277,20 @@ public class AppTest
         Path racine = Files.createTempDirectory("leopold-word-long");
         Path source = racine.resolve("document.pdf");
         Path dossierOcr = App.trouverDossierOcr(racine);
-        StringBuilder titreLong = new StringBuilder();
-        for (int i = 0; i < 400; i++) {
-            titreLong.append('a');
-        }
+        String titreLong = "a".repeat(400);
         File premierWord = null;
         File secondWord = null;
         try {
             Files.createFile(source);
             premierWord = App.creerDocumentWord(
-                    racine, dossierOcr, source.toFile(), titreLong.toString(), 10, "Texte OCR");
+                    racine, dossierOcr, source.toFile(), titreLong, 10, "Texte OCR");
             String premierLien = racine.relativize(premierWord.toPath()).toString()
                     .replace(File.separatorChar, '/');
             assertEquals(255, premierLien.length());
             assertTrue(premierWord.getName().endsWith("_SC10.docx"));
 
             secondWord = App.creerDocumentWord(
-                    racine, dossierOcr, source.toFile(), titreLong.toString(), 10, "Autre texte");
+                    racine, dossierOcr, source.toFile(), titreLong, 10, "Autre texte");
             String secondLien = racine.relativize(secondWord.toPath()).toString()
                     .replace(File.separatorChar, '/');
             assertEquals(255, secondLien.length());
@@ -308,7 +304,7 @@ public class AppTest
         }
     }
 
-    public void testOcrImageDepuisCheminUnicodeAvecModeleFrancais() throws IOException
+    public void testOcrImageDepuisCheminUnicodeAvecModelesFrancaisEtPortugais() throws IOException
     {
         Path imagePath = Files.createTempFile("leopold-ocr-épreuve-", ".png");
         try {
@@ -335,14 +331,71 @@ public class AppTest
         }
     }
 
+    public void testOcrDocumentMultilingue() throws IOException
+    {
+        Path imagePath = Files.createTempFile("leopold-ocr-multilingue-", ".png");
+        Path imageFrancaise = Files.createTempFile("leopold-ocr-francais-", ".png");
+        try {
+            BufferedImage image = new BufferedImage(1600, 600, BufferedImage.TYPE_INT_RGB);
+            Graphics2D graphics = image.createGraphics();
+            try {
+                graphics.setColor(Color.WHITE);
+                graphics.fillRect(0, 0, image.getWidth(), image.getHeight());
+                graphics.setColor(Color.BLACK);
+                graphics.setFont(new Font("SansSerif", Font.BOLD, 100));
+                graphics.drawString("O coração é azul", 50, 120);
+                graphics.drawString("Bonjour", 50, 250);
+                graphics.drawString("The sky is blue", 50, 380);
+                graphics.drawString("El niño está aquí", 50, 510);
+            } finally {
+                graphics.dispose();
+            }
+            ImageIO.write(image, "png", imagePath.toFile());
+
+            BufferedImage imageFr = new BufferedImage(1000, 240, BufferedImage.TYPE_INT_RGB);
+            Graphics2D graphicsFr = imageFr.createGraphics();
+            try {
+                graphicsFr.setColor(Color.WHITE);
+                graphicsFr.fillRect(0, 0, imageFr.getWidth(), imageFr.getHeight());
+                graphicsFr.setColor(Color.BLACK);
+                graphicsFr.setFont(new Font("SansSerif", Font.BOLD, 100));
+                graphicsFr.drawString("Bonjour", 50, 165);
+            } finally {
+                graphicsFr.dispose();
+            }
+            ImageIO.write(imageFr, "png", imageFrancaise.toFile());
+
+            try (App.MoteurOcr moteur =
+                         App.creerMoteurOcr(App.SEUIL_CONFIANCE_OCR_PAR_DEFAUT)) {
+                String texte = moteur.extraireTexte(imagePath.toFile()).toLowerCase(Locale.ROOT);
+                assertTrue("Le texte portugais doit être extrait sans traduction : " + texte,
+                        texte.contains("coração"));
+                assertTrue("Le français doit aussi être extrait du même fichier : " + texte,
+                        texte.contains("bonjour"));
+                assertTrue("L’anglais doit aussi être extrait du même fichier : " + texte,
+                        texte.contains("the sky is blue"));
+                assertTrue("L’espagnol doit aussi être extrait du même fichier : " + texte,
+                        texte.contains("niño"));
+                String texteFrancais =
+                        moteur.extraireTexte(imageFrancaise.toFile()).toLowerCase(Locale.ROOT);
+                assertTrue("Le même moteur doit aussi extraire le français : " + texteFrancais,
+                        texteFrancais.contains("bonjour"));
+            }
+        } finally {
+            Files.deleteIfExists(imagePath);
+            Files.deleteIfExists(imageFrancaise);
+        }
+    }
+
     public void testFiltreOcrSupprimeUniquementLesMotsSousSeuil() throws IOException
     {
-        String tsv = "level\tpage_num\tblock_num\tpar_num\tline_num\tword_num"
-                + "\tleft\ttop\twidth\theight\tconf\ttext\n"
-                + "5\t1\t1\t1\t1\t1\t0\t0\t10\t10\t9.99\tillisible\n"
-                + "5\t1\t1\t1\t1\t2\t0\t0\t10\t10\t10\tSENGHOR\n"
-                + "5\t1\t1\t1\t2\t1\t0\t0\t10\t10\t85\tRaja\n"
-                + "5\t1\t1\t1\t2\t2\t0\t0\t10\t10\t90\tRao.\n";
+        String tsv = """
+        level\tpage_num\tblock_num\tpar_num\tline_num\tword_num\tleft\ttop\twidth\theight\tconf\ttext
+        5\t1\t1\t1\t1\t1\t0\t0\t10\t10\t9.99\tillisible
+        5\t1\t1\t1\t1\t2\t0\t0\t10\t10\t10\tSENGHOR
+        5\t1\t1\t1\t2\t1\t0\t0\t10\t10\t85\tRaja
+        5\t1\t1\t1\t2\t2\t0\t0\t10\t10\t90\tRao.
+        """;
         assertEquals("SENGHOR\nRaja Rao.", App.MoteurOcr.filtrerTexteTsv(tsv, 10));
         assertEquals("illisible SENGHOR\nRaja Rao.",
                 App.MoteurOcr.filtrerTexteTsv(tsv, 0));
@@ -399,12 +452,8 @@ public class AppTest
     public void testLienOcrAccepteUnCheminSuperieurALaLimiteDesFormules() throws IOException
     {
         Path racine = Paths.get("racine").toAbsolutePath().normalize();
-        StringBuilder nomWord = new StringBuilder();
-        for (int i = 0; i < 246; i++) {
-            nomWord.append('a');
-        }
-        nomWord.append(".docx");
-        File word = racine.resolve("OCR").resolve(nomWord.toString()).toFile();
+        String nomWord = "a".repeat(246) + ".docx";
+        File word = racine.resolve("OCR").resolve(nomWord).toFile();
         ByteArrayOutputStream contenu = new ByteArrayOutputStream();
         assertEquals(255, ("OCR/" + nomWord).length());
 

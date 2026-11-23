@@ -1,8 +1,11 @@
 Third-party software bundled with Leopold
 
-Tesseract OCR 5.5.3 and the French fra.traineddata model are distributed
-under the Apache License, Version 2.0. The license text is available at
-tessdata/LICENSE.
+Tesseract OCR 5.5.3 and the French fra.traineddata, Portuguese
+por.traineddata, English eng.traineddata, and Spanish spa.traineddata models
+are distributed under the Apache License, Version 2.0. The English,
+Portuguese, and Spanish models are sourced from tesseract-ocr/tessdata_fast at
+revision 87416418657359cb625c412a48b6e1d6d41c29bd. The license text is
+available at tessdata/LICENSE.
 
 Leptonica 1.87.0 is distributed under its BSD 2-Clause license. The license
 text is available at licenses/LEPTONICA-LICENSE.txt.

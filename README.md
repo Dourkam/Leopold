@@ -1,12 +1,12 @@
 # Leopold
 
-Leopold est une application de bureau qui catalogue des documents dans un fichier Excel et peut extraire leur texte avec l’OCR français.
+Leopold est une application de bureau qui catalogue des documents dans un fichier Excel et peut extraire leur texte avec l’OCR français, portugais, anglais et espagnol, sans traduction.
 
 ## Fonctionnalités
 
 - Parcourt un dossier et ses sous-dossiers pour répertorier les fichiers PDF et image.
 - Crée un inventaire Excel avec le nom du fichier, son dossier et, si le nommage est reconnu, sa date, son titre, sa cote et son nom antérieur.
-- Propose l’extraction OCR en français et crée des documents Word contenant le texte extrait, avec des liens depuis le fichier Excel.
+- Propose l’extraction OCR en français, portugais, anglais et espagnol, y compris lorsque plusieurs de ces langues apparaissent dans le même document, et crée des documents Word contenant le texte extrait, avec des liens depuis le fichier Excel.
 - Pour les PDF contenant déjà du texte, extrait ce texte directement ; l’OCR est utilisé pour les pages sans texte intégré.
 
 Formats pris en charge : `.pdf`, `.jpg`, `.jpeg`, `.png`, `.gif`, `.heic` et `.webp`.

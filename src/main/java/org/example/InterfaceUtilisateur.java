@@ -71,7 +71,8 @@ final class InterfaceUtilisateur {
             Object[] optionsOcr = {"Oui", "Non"};
             int choixOcr = JOptionPane.showOptionDialog(
                     fenetreParente,
-                    "Voulez-vous extraire les textes OCR et créer les fichiers Word ?",
+                    "Voulez-vous extraire les textes en français, portugais, anglais et "
+                            + "espagnol par OCR et créer les fichiers Word ?",
                     "Extraction OCR",
                     JOptionPane.DEFAULT_OPTION,
                     JOptionPane.QUESTION_MESSAGE,
@@ -107,7 +108,7 @@ final class InterfaceUtilisateur {
         fenetreVerification.setLocationRelativeTo(null);
 
         boolean[] tailleValide = {false};
-        SwingWorker<Boolean, Void> travailleur = new SwingWorker<Boolean, Void>() {
+        SwingWorker<Boolean, Void> travailleur = new SwingWorker<>() {
             @Override
             protected Boolean doInBackground() throws IOException {
                 return dossierRespecteTailleMax(dossier.toPath());
@@ -121,7 +122,8 @@ final class InterfaceUtilisateur {
                     if (!tailleValide[0]) {
                         JOptionPane.showMessageDialog(fenetreParente,
                                 "Le dossier dépasse la taille maximale autorisée de "
-                                        + TAILLE_MAX_DOSSIER_GO + " Go.",
+                                        + TAILLE_MAX_DOSSIER_GO
+                                        + " Go. Veuillez sélectionner un autre dossier.",
                                 "Dossier trop volumineux", JOptionPane.WARNING_MESSAGE);
                     }
                 } catch (InterruptedException e) {
@@ -148,7 +150,7 @@ final class InterfaceUtilisateur {
     private static boolean dossierRespecteTailleMax(Path dossier) throws IOException {
         long[] tailleTotale = {0};
         boolean[] depasseLimite = {false};
-        Files.walkFileTree(dossier, new SimpleFileVisitor<Path>() {
+        Files.walkFileTree(dossier, new SimpleFileVisitor<>() {
             @Override
             public FileVisitResult visitFile(Path fichier, BasicFileAttributes attributes) {
                 if (attributes.isRegularFile()) {
@@ -194,9 +196,10 @@ final class InterfaceUtilisateur {
         while (true) {
             Object saisie = JOptionPane.showInputDialog(
                     fenetreParente,
-                    "Exclure les mots dont le score est inférieur à :\n"
-                            + "Saisissez une valeur entière entre 0 et 100.\n"
-                            + "Annuler poursuit l’export sans OCR.",
+                    String.join("\n",
+                            "Exclure les mots dont le score est inférieur à :",
+                            "Saisissez une valeur entière entre 0 et 100.",
+                            "Annuler poursuit l’export sans OCR."),
                     "Seuil d’exclusion OCR",
                     JOptionPane.QUESTION_MESSAGE,
                     null,
@@ -235,7 +238,7 @@ final class InterfaceUtilisateur {
         fenetreProgression.setLocationRelativeTo(null);
 
         SwingWorker<App.ResultatExport, Void> travailleur =
-                new SwingWorker<App.ResultatExport, Void>() {
+                new SwingWorker<>() {
                     @Override
                     protected App.ResultatExport doInBackground() throws IOException {
                         return App.exporter(dossier, extraireOcr, seuilConfianceOcr);
