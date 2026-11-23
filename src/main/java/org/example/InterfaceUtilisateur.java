@@ -22,9 +22,19 @@ import java.awt.Taskbar;
 import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
+import java.nio.file.FileVisitResult;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.SimpleFileVisitor;
+import java.nio.file.attribute.BasicFileAttributes;
 import java.util.concurrent.ExecutionException;
 
 final class InterfaceUtilisateur {
+    private static final long TAILLE_MAX_DOSSIER_GO = 2;
+    private static final long OCTETS_PAR_GO = 1024L * 1024 * 1024;
+    private static final long TAILLE_MAX_DOSSIER_OCTETS =
+            TAILLE_MAX_DOSSIER_GO * OCTETS_PAR_GO;
+
     private InterfaceUtilisateur() {
     }
 
@@ -45,36 +55,114 @@ final class InterfaceUtilisateur {
         fenetreParente.setIconImage(icone);
         fenetreParente.setLocationRelativeTo(null);
 
-        JFileChooser choixDossier = new JFileChooser();
-        choixDossier.setDialogTitle("Choisir le dossier à lire");
-        choixDossier.setFileSelectionMode(JFileChooser.DIRECTORIES_ONLY);
-        if (choixDossier.showOpenDialog(fenetreParente) != JFileChooser.APPROVE_OPTION) {
-            fenetreParente.dispose();
-            return;
-        }
-        File dossier = choixDossier.getSelectedFile();
-
-        Object[] optionsOcr = {"Oui", "Non"};
-        int choixOcr = JOptionPane.showOptionDialog(
-                fenetreParente,
-                "Voulez-vous extraire les textes OCR et créer les fichiers Word ?",
-                "Extraction OCR",
-                JOptionPane.DEFAULT_OPTION,
-                JOptionPane.QUESTION_MESSAGE,
-                null,
-                optionsOcr,
-                optionsOcr[1]);
-        boolean extraireOcr = choixOcr == 0;
-        int seuilConfianceOcr = App.SEUIL_CONFIANCE_OCR_PAR_DEFAUT;
-        if (extraireOcr) {
-            Integer seuilSaisi = demanderSeuilConfianceOcr(fenetreParente);
-            if (seuilSaisi == null) {
-                extraireOcr = false;
-            } else {
-                seuilConfianceOcr = seuilSaisi;
+        while (true) {
+            JFileChooser choixDossier = new JFileChooser();
+            choixDossier.setDialogTitle("Choisir le dossier à lire");
+            choixDossier.setFileSelectionMode(JFileChooser.DIRECTORIES_ONLY);
+            if (choixDossier.showOpenDialog(fenetreParente) != JFileChooser.APPROVE_OPTION) {
+                fenetreParente.dispose();
+                return;
             }
+            File dossier = choixDossier.getSelectedFile();
+            if (!verifierTailleDossier(fenetreParente, dossier)) {
+                continue;
+            }
+
+            Object[] optionsOcr = {"Oui", "Non"};
+            int choixOcr = JOptionPane.showOptionDialog(
+                    fenetreParente,
+                    "Voulez-vous extraire les textes OCR et créer les fichiers Word ?",
+                    "Extraction OCR",
+                    JOptionPane.DEFAULT_OPTION,
+                    JOptionPane.QUESTION_MESSAGE,
+                    null,
+                    optionsOcr,
+                    optionsOcr[1]);
+            boolean extraireOcr = choixOcr == 0;
+            int seuilConfianceOcr = App.SEUIL_CONFIANCE_OCR_PAR_DEFAUT;
+            if (extraireOcr) {
+                Integer seuilSaisi = demanderSeuilConfianceOcr(fenetreParente);
+                if (seuilSaisi == null) {
+                    extraireOcr = false;
+                } else {
+                    seuilConfianceOcr = seuilSaisi;
+                }
+            }
+            afficherProgression(fenetreParente, dossier, extraireOcr, seuilConfianceOcr);
         }
-        afficherProgression(fenetreParente, dossier, extraireOcr, seuilConfianceOcr);
+    }
+
+    private static boolean verifierTailleDossier(JFrame fenetreParente, File dossier) {
+        JProgressBar progression = new JProgressBar();
+        progression.setIndeterminate(true);
+        JPanel contenu = new JPanel(new BorderLayout(0, 12));
+        contenu.setBorder(BorderFactory.createEmptyBorder(16, 20, 16, 20));
+        contenu.add(new JLabel("Vérification de la taille du dossier..."), BorderLayout.NORTH);
+        contenu.add(progression, BorderLayout.CENTER);
+
+        JDialog fenetreVerification = new JDialog(fenetreParente, "Vérification en cours", true);
+        fenetreVerification.setDefaultCloseOperation(WindowConstants.DO_NOTHING_ON_CLOSE);
+        fenetreVerification.setContentPane(contenu);
+        fenetreVerification.pack();
+        fenetreVerification.setLocationRelativeTo(null);
+
+        boolean[] tailleValide = {false};
+        SwingWorker<Boolean, Void> travailleur = new SwingWorker<Boolean, Void>() {
+            @Override
+            protected Boolean doInBackground() throws IOException {
+                return dossierRespecteTailleMax(dossier.toPath());
+            }
+
+            @Override
+            protected void done() {
+                fenetreVerification.dispose();
+                try {
+                    tailleValide[0] = get();
+                    if (!tailleValide[0]) {
+                        JOptionPane.showMessageDialog(fenetreParente,
+                                "Le dossier dépasse la taille maximale autorisée de "
+                                        + TAILLE_MAX_DOSSIER_GO + " Go.",
+                                "Dossier trop volumineux", JOptionPane.WARNING_MESSAGE);
+                    }
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    JOptionPane.showMessageDialog(fenetreParente,
+                            "La vérification de la taille du dossier a été interrompue.",
+                            "Erreur", JOptionPane.ERROR_MESSAGE);
+                } catch (ExecutionException e) {
+                    Throwable cause = e.getCause();
+                    String message = cause == null || cause.getMessage() == null
+                            ? "Impossible de vérifier la taille du dossier."
+                            : "Impossible de vérifier la taille du dossier : "
+                                    + cause.getMessage();
+                    JOptionPane.showMessageDialog(fenetreParente, message, "Erreur",
+                            JOptionPane.ERROR_MESSAGE);
+                }
+            }
+        };
+        SwingUtilities.invokeLater(travailleur::execute);
+        fenetreVerification.setVisible(true);
+        return tailleValide[0];
+    }
+
+    private static boolean dossierRespecteTailleMax(Path dossier) throws IOException {
+        long[] tailleTotale = {0};
+        boolean[] depasseLimite = {false};
+        Files.walkFileTree(dossier, new SimpleFileVisitor<Path>() {
+            @Override
+            public FileVisitResult visitFile(Path fichier, BasicFileAttributes attributes) {
+                if (attributes.isRegularFile()) {
+                    long tailleFichier = attributes.size();
+                    if (tailleFichier > TAILLE_MAX_DOSSIER_OCTETS - tailleTotale[0]) {
+                        depasseLimite[0] = true;
+                        return FileVisitResult.TERMINATE;
+                    }
+                    tailleTotale[0] += tailleFichier;
+                }
+                return FileVisitResult.CONTINUE;
+            }
+        });
+        return !depasseLimite[0];
     }
 
     private static Image chargerIconeApplication() {
@@ -176,7 +264,6 @@ final class InterfaceUtilisateur {
                             JOptionPane.showMessageDialog(fenetreParente, message, "Erreur",
                                     JOptionPane.ERROR_MESSAGE);
                         }
-                        fenetreParente.dispose();
                     }
                 };
         SwingUtilities.invokeLater(travailleur::execute);
